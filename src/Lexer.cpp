@@ -9,6 +9,18 @@ namespace x666 {
   const char* lexErrorMessages[] = {
     "Integer is too big to fit type",
     "Unknown operator",
+    "Operator doesn't belong in an expression",
+    "Multiple expressions on a line",
+    "Left operator missing",
+    "Right operator missing",
+  };
+  const char* opsAsStrings[] = {
+    "(", ")", "[", "]",
+    "+", "-", "*", "/", "%",
+    "~", "<-", "=", "<", ">",
+    "/=", "<=", ">=", "??", "?&",
+    "!!", "&>", "?", ":", "@", "@@",
+    "@#", "!", "&", "|", "|*", "#", ",",
   };
   static int getChar(std::istream& fh, LineInfo& li) {
     int c = fh.get();
@@ -125,7 +137,7 @@ namespace x666 {
         }
         if (negative) digit = -digit;
         if (wouldMAddOverflow(base, n, digit)) {
-          return LexError(LexErrorCode::integerOverflow, sot, li.byte + 1);
+          return LexError(LexErrorCode::integerOverflow, sot, li);
         }
         n = base * n + digit;
         getChar(fh, li);
@@ -146,6 +158,7 @@ namespace x666 {
       switch (c) {
         case '+': return Operator::plus;
         case '*': return Operator::times;
+        case '%': return Operator::modulo;
         case '~': return Operator::concat;
         case '(': return Operator::leftBracket;
         case ')': return Operator::rightBracket;
@@ -153,7 +166,8 @@ namespace x666 {
         case ']': return Operator::rightSBracket;
         case '=': return Operator::equal;
         case ':': return Operator::colon;
-        case '|': return Operator::orStmt;
+        case ',': return Operator::comma;
+        case '#': return Operator::length;
         case '/': {
           if (fh.peek() == '=') {
             getChar(fh, li);
@@ -210,6 +224,14 @@ namespace x666 {
           }
           return Operator::andStmt;
         }
+        case '|': {
+          int c = fh.peek();
+          if (c == '*') {
+            getChar(fh, li);
+            return Operator::xorStmt;
+          }
+          return Operator::orStmt;
+        }
         case '!': {
           int c = fh.peek();
           if (c == '!') {
@@ -221,6 +243,19 @@ namespace x666 {
         case '\x22': return StringLiteral(parseStringLiteral(fh, li));
       }
     }
-    return LexError(LexErrorCode::unknownOperator, sot, li.byte + 1);
+    return LexError(LexErrorCode::unknownOperator, sot, li);
+  }
+  void LexError::print(std::istream& fh) const {
+    std::cout << "Error at line " << (li.line + 1);
+    std::cout << " column " << (li.col + 1);
+    size_t off = fh.tellg();
+    fh.seekg(start);
+    char* s = new char[li.byte - start + 1];
+    fh.read(s, li.byte - start);
+    s[fh.gcount()] = '\0';
+    std::cout << " (" << s << ")\n";
+    delete[] s;
+    fh.seekg(off);
+    std::cout << x666::lexErrorMessages[(int) c] << "\n";
   }
 }

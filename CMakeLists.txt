@@ -24,6 +24,7 @@ INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/include)
 SET(SOURCES
   src/main.cpp
   src/Lexer.cpp
+  src/Parser.cpp
 )
 
 ADD_EXECUTABLE(x666 ${SOURCES})

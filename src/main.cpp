@@ -3,6 +3,7 @@
 #include <variant>
 
 #include "Lexer.h"
+#include "Parser.h"
 
 int main(int argc, char** argv) {
   if (argc == 1) {
@@ -12,11 +13,13 @@ int main(int argc, char** argv) {
   const char* fname = argv[1];
   std::fstream fh(fname);
   x666::LineInfo li;
+  x666::Parser p(&fh);
   while (true) {
     size_t byte = li.byte;
     x666::Token t = getNextToken(fh, li, byte);
-    std::cout << t.index() << " ";
-    switch (t.index()) {
+    size_t index = t.index();
+    std::cout << index << " ";
+    switch (index) {
       case 0: {
         std::cout << "Identifier " << std::get<0>(t).name;
         break;
@@ -43,22 +46,11 @@ int main(int argc, char** argv) {
       }
       case 6: {
         std::cout << "** ERROR ENCOUNTERED BY LEXING **\n";
-        std::cout << "at line " << (li.line + 1);
-        std::cout << " column " << (li.col + 1);
-        size_t off = fh.tellg();
-        fh.seekg(byte);
         const x666::LexError& le = std::get<6>(t);
-        char* s = new char[le.end - le.start + 1];
-        fh.read(s, le.end - le.start);
-        s[fh.gcount()] = '\0';
-        std::cout << " (" << s << ")\n";
-        delete[] s;
-        fh.seekg(off);
-        std::cout << x666::lexErrorMessages[(int) le.c] << "\n";
+        le.print(fh);
       }
     }
-    if (t.index() == 5) break;
-    else if (t.index() != 6) {
+    if (index != 6 && index != 5) {
       std::cout << " @ bytes " << byte << " -- " << li.byte;
       size_t off = fh.tellg();
       fh.seekg(byte);
@@ -68,6 +60,19 @@ int main(int argc, char** argv) {
       std::cout << " (" << s << ")\n";
       delete[] s;
       fh.seekg(off);
+    }
+    p.acceptToken(std::move(t));
+    if (index == 5) break;
+  }
+  if (p.errorLog.empty()) {
+    std::cout << "Compilation succeeded\n";
+    for (const x666::ExpressionPtr& ex : p.expressions) {
+      ex->trace();
+    }
+  } else {
+    std::cout << "Parsing failed:\n";
+    for (const x666::LexError& le : p.errorLog) {
+      le.print(fh);
     }
   }
   return 0;
