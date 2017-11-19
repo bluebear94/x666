@@ -5,15 +5,18 @@
 
 namespace x666 {
   // Precedences of operators by their ids
+  // In general, <64 is treated specially
   // 0 => treated specially
   // 1 => not valid in expressions (statements only)
+  // 2 => opening bracket
+  // 3 => closing bracket
   // 3 LSBs in other cases:
   // 0 => binary, left-associative
   // 1 => binary, right-associative
   // 2 => unary, prefixing (nyi)
   // 4, 5 => like 0, 1 but can also be unary
   uint16_t precedences[] = {
-    0, 0, 0, 0, // brackets
+    2, 3, 2, 3, // brackets
     0x400, 0x404, 0x500, 0x500, 0x500, // + - * / %
     0x400, 0x201, 0x300, 0x300, 0x300, // ~ <- = < 
     0x300, 0x300, 0x300, // /= <= >=
@@ -155,6 +158,11 @@ namespace x666 {
     std::cout << opsAsStrings[(size_t) o];
     a->trace();
   }
+  void Bracket::trace() const {
+    std::cout << "(";
+    ex->trace();
+    std::cout << ")";
+  }
   // ParserVisitor used in parseAST::parse()
   class ParserVisitor {
   public:
@@ -219,17 +227,8 @@ namespace x666 {
       ExpressionPtr a = std::move(p->thisLine.top());
       p->thisLine.pop();
       // Now generate a new AST from a token
-      Token t = p->requestToken();
-      if (std::holds_alternative<Newline>(t)) {
-        // Oh no, we can't find anything after this
-        p->errorLog.emplace_back(
-          LexErrorCode::noRightOperand,
-          p->positions.top());
-        p->positions.pop();
-        return false;
-      }
-      bool generatedExpression = p->acceptToken(std::move(t));
-      if (!generatedExpression) {
+      size_t generatedExpressions = p->pushExpression();
+      if (generatedExpressions != 1) {
         // Oh no, we can't find anything after this
         p->errorLog.emplace_back(
           LexErrorCode::noRightOperand,
@@ -240,15 +239,60 @@ namespace x666 {
       ExpressionPtr b = std::move(p->thisLine.top());
       p->thisLine.pop();
       p->positions.pop();
+      Expression* r = (prec & 1) == 0 ? a.get() : b.get();
       ExpressionPtr ex = (prec & 1) == 0 ?
-        a->imbue(std::move(a), op, prec >> 3, std::move(b)) :
-        b->imbue(std::move(b), op, prec >> 3, std::move(a));
+        r->imbue(std::move(a), op, prec >> 3, std::move(b)) :
+        r->imbue(std::move(b), op, prec >> 3, std::move(a));
       p->thisLine.push(std::move(ex));
+      return true;
+    }
+    bool parseClosingBracket(const Operator& op) {
+      bool matches = true;
+      size_t openingHeight = 0;
+      if (!p->brackets.empty()) {
+        Parser::BracketEntry op2 = p->brackets.top();
+        p->brackets.pop();
+        if ((size_t) op2.bracket + 1 != (size_t) op)
+          matches = false;
+        openingHeight = op2.thisLineSize;
+      }
+      if (!matches) {
+        p->errorLog.emplace_back(
+          LexErrorCode::mismatchedBrackets,
+          p->getLastLineInfo());
+        return false;
+      }
+      ssize_t k = (ssize_t) p->thisLine.size() - (ssize_t) openingHeight;
+      if (k < 0 || k > 1) {
+        p->errorLog.emplace_back(
+          LexErrorCode::multipleExpressions,
+          p->getLastLineInfo());
+        return false;
+      } else if (k == 1) {
+        ExpressionPtr ex = std::move(p->thisLine.top());
+        p->thisLine.pop();
+        p->thisLine.push(
+          std::make_unique<Bracket>(
+            std::move(ex), (Operator) ((size_t) op - 1)));
+      } else { // k == 0
+        p->thisLine.push(
+          std::make_unique<Bracket>(
+            nullptr, (Operator) ((size_t) op - 1)));
+        p->positions.push(li);
+      }
       return true;
     }
     bool operator()(Operator&& op) {
       size_t prec = precedences[(size_t) op];
-      if (prec == 1 || prec == 0 /* nyi */) {
+      ExpressionPtr ex = nullptr;
+      if (prec == 2) {
+        // Opening bracket.
+        p->brackets.push({ op, p->thisLine.size() });
+        return false;
+      } else if (prec == 3) {
+        // Closing bracket.
+        return parseClosingBracket(op);
+      } else if (prec < 64) {
         p->errorLog.emplace_back(
           LexErrorCode::invalidOpInExpr,
           p->getLastLineInfo());
@@ -259,16 +303,8 @@ namespace x666 {
       }
       if ((prec & 2) != 0) { // This is a unary operator
         // Now generate a new AST from a token
-        Token t = p->requestToken();
-        if (std::holds_alternative<Newline>(t)) {
-          // Oh no, we can't find anything after this
-          p->errorLog.emplace_back(
-            LexErrorCode::noRightOperand,
-            p->getLastLineInfo());
-          return false;
-        }
-        bool generatedExpression = p->acceptToken(std::move(t));
-        if (!generatedExpression) {
+        size_t generatedExpressions = p->pushExpression();
+        if (generatedExpressions != 1) {
           // Oh no, we can't find anything after this
           p->errorLog.emplace_back(
             LexErrorCode::noRightOperand,
@@ -277,7 +313,8 @@ namespace x666 {
         }
         ExpressionPtr a = std::move(p->thisLine.top());
         p->thisLine.pop();
-        ExpressionPtr ex = a->imbue(std::move(a), op, prec >> 3);
+        Expression* ar = a.get();
+        ex = ar->imbue(std::move(a), op, prec >> 3);
         p->thisLine.push(std::move(ex));
       }
     }
@@ -294,6 +331,19 @@ namespace x666 {
   }
   bool Parser::acceptToken(Token&& t) {
     return std::visit(ParserVisitor(this, li), std::move(t));
+  }
+  size_t Parser::pushExpression() {
+    size_t oldBracketsHeight = brackets.size();
+    size_t oldThisLineSize = thisLine.size();
+    do {
+      Token t = requestToken();
+      if (std::holds_alternative<EndOfFile>(t) ||
+          std::holds_alternative<Newline>(t)) {
+        break;
+      }
+      acceptToken(std::move(t));
+    } while (oldBracketsHeight != brackets.size());
+    return thisLine.size() - oldThisLineSize;
   }
   void Parser::parse() {
     while (true) {

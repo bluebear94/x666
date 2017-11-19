@@ -13,6 +13,7 @@ namespace x666 {
     "Multiple expressions on a line",
     "Left operand missing",
     "Right operand missing",
+    "Mismatched brackets",
   };
   const char* opsAsStrings[] = {
     "(", ")", "[", "]",

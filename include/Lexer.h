@@ -78,6 +78,7 @@ namespace x666 {
     multipleExpressions,
     noLeftOperand,
     noRightOperand,
+    mismatchedBrackets,
   };
   /** The array of lex error messages. */
   extern const char* lexErrorMessages[];

@@ -86,11 +86,24 @@ namespace x666 {
       ExpressionPtr b) override;
     void trace() const override;
   };
+  class Bracket : public Expression {
+  public:
+    Bracket(ExpressionPtr ex, Operator bracket) :
+      ex(std::move(ex)), bracket(bracket) {}
+    ExpressionPtr ex;
+    Operator bracket;
+    size_t id() const override { return 4; }
+    void trace() const override;
+  };
   /**
    * A parser object.
    */
   class Parser {
   public:
+    struct BracketEntry {
+      Operator bracket; // The opening bracket used
+      size_t thisLineSize; // The size of thisLine when pushed
+    };
     /**
      * Initialise the parser object.
      */
@@ -101,16 +114,22 @@ namespace x666 {
      * and updates the state of the parser.
      */
     bool acceptToken(Token&& t);
+    /**
+     * Accept tokens from requestToken() until the opening
+     * bracket is closed. Return the number of additional entries
+     * on the thisLine stack.
+     */
+    size_t pushExpression();
     Token requestToken();
     ExpressionPtr parseExpression();
     const LineInfo& getLastLineInfo() const;
     std::vector<ExpressionPtr> expressions;
     std::stack<ExpressionPtr> thisLine;
     std::stack<LineInfo> positions;
+    std::stack<BracketEntry> brackets;
     std::vector<LexError> errorLog;
     std::istream* fh;
     LineInfo li;
-    size_t sot;
     friend class ParserVisitor;
   };
 }
