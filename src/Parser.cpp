@@ -7,20 +7,21 @@ namespace x666 {
   // Precedences of operators by their ids
   // 0 => treated specially
   // 1 => not valid in expressions (statements only)
-  // 2 LSBs in other cases:
+  // 3 LSBs in other cases:
   // 0 => binary, left-associative
   // 1 => binary, right-associative
   // 2 => unary, prefixing (nyi)
+  // 4, 5 => like 0, 1 but can also be unary
   uint16_t precedences[] = {
     0, 0, 0, 0, // brackets
-    400, 400, 500, 500, 500, // + - * / %
-    400, 201, 300, 300, 300, // ~ <- = < 
-    300, 300, 300, // /= <= >=
+    0x400, 0x404, 0x500, 0x500, 0x500, // + - * / %
+    0x400, 0x201, 0x300, 0x300, 0x300, // ~ <- = < 
+    0x300, 0x300, 0x300, // /= <= >=
     1, 1, 1, 1, // ?? ?& !! &>
-    341, 341, // ? :
+    0x381, 0x381, // ? :
     1, 1, 1, // @ @@ @#
-    0, 240, 240, 240, // ! & | |*
-    0, 140, // # ,
+    0x582, 0x280, 0x280, 0x280, // ! & | |*
+    0x582, 0x180, // # ,
   };
   // Methods specific to Expression-trees
   Expression::~Expression() {}
@@ -29,6 +30,11 @@ namespace x666 {
       Operator o, size_t /*precedence*/,
       ExpressionPtr b) {
     return std::make_unique<BinaryOp>(std::move(a), std::move(b), o);
+  }
+  ExpressionPtr Expression::imbue(
+      ExpressionPtr a,
+      Operator o, size_t /*precedence*/) {
+    return std::make_unique<UnaryOp>(std::move(a), o);
   }
   ExpressionPtr BinaryOp::imbue(
       ExpressionPtr ax,
@@ -41,7 +47,7 @@ namespace x666 {
     */
     assert(ax->id() == 2);
     BinaryOp* a = dynamic_cast<BinaryOp*>(ax.get());
-    size_t aprec = precedences[(size_t) a->o];
+    size_t aprec = precedences[(size_t) a->o] >> 3;
     if (aprec >= prec) {
       /*
             o--
@@ -64,6 +70,73 @@ namespace x666 {
       return ax;
     }
   }
+  ExpressionPtr BinaryOp::imbue(
+      ExpressionPtr ax,
+      Operator o, size_t prec) {
+    /*
+        a->o        <- o
+       /    \
+      a->a  a->b
+    */
+    assert(ax->id() == 2);
+    BinaryOp* a = dynamic_cast<BinaryOp*>(ax.get());
+    size_t aprec = precedences[(size_t) a->o] >> 3;
+    if (aprec >= prec) {
+      /*
+            o
+           /
+          a->o
+         /    \
+        a->a  a->b
+      */
+      return std::make_unique<UnaryOp>(std::move(ax), o);
+    } else { // aprec < prec
+      /*
+          a->o
+         /    \
+        a->a   o
+              /
+             a->b
+        (this case showing the trivial imbuement into a->b)
+      */
+      a->b = a->b->imbue(std::move(a->b), o, prec);
+      return ax;
+    }
+  }
+  ExpressionPtr UnaryOp::imbue(
+      ExpressionPtr ax,
+      Operator o, size_t prec,
+      ExpressionPtr b) {
+    /*
+        a->o        <- o
+       /                \
+      a->a               b
+    */
+    assert(ax->id() == 3);
+    UnaryOp* a = dynamic_cast<UnaryOp*>(ax.get());
+    size_t aprec = precedences[(size_t) a->o] >> 3;
+    if (aprec >= prec) {
+      /*
+            o--
+           /   \
+          a->o  b
+         /
+        a->a
+      */
+      return std::make_unique<BinaryOp>(std::move(ax), std::move(b), o);
+    } else { // aprec < prec
+      /*
+            a->o
+           /
+          o--
+         /   \
+        a->a  b
+        (this case showing the trivial imbuement into a->a)
+      */
+      a->a = a->a->imbue(std::move(a->a), o, prec, std::move(b));
+      return ax;
+    }
+  }
   void Literal::trace() const {
     switch (val.index()) {
       case 0: std::cout << std::get<0>(val).name; break;
@@ -77,6 +150,10 @@ namespace x666 {
     ((prec & 1) == 0 ? a : b)->trace();
     std::cout << " " << opsAsStrings[(size_t) o] << " ";
     ((prec & 1) == 0 ? b : a)->trace();
+  }
+  void UnaryOp::trace() const {
+    std::cout << opsAsStrings[(size_t) o];
+    a->trace();
   }
   // ParserVisitor used in parseAST::parse()
   class ParserVisitor {
@@ -107,7 +184,7 @@ namespace x666 {
       if (!p->thisLine.empty()) {
         p->errorLog.emplace_back(
           LexErrorCode::multipleExpressions,
-          p->positions.top());
+          p->getLastLineInfo());
         while (!p->thisLine.empty()) p->thisLine.pop();
         while (!p->positions.empty()) p->positions.pop();
       }
@@ -125,32 +202,69 @@ namespace x666 {
       p->errorLog.push_back(e);
       return false;
     }
-    bool operator()(Operator&& op) {
-      size_t prec = precedences[(size_t) op];
-      if (prec == 1 || prec == 0 /* nyi */) {
-        p->errorLog.emplace_back(
-          LexErrorCode::invalidOpInExpr,
-          p->positions.empty() ? li : p->positions.top());
-        return false;
-      } else if ((prec & 2) == 0) {
-        // Get the top AST
-        if (p->thisLine.empty()) {
-          // Oh no, we can't find anything after this
+    bool parseBinaryOp(const Operator& op, size_t& prec) {
+      // Get the top AST
+      if (p->thisLine.empty()) {
+        // Oh no, we can't find anything before this
+        if ((prec & 4) != 0) {
+          prec |= 2;
+          return false;
+        } else {
           p->errorLog.emplace_back(
             LexErrorCode::noLeftOperand,
             p->li);
           return false;
         }
-        ExpressionPtr a = std::move(p->thisLine.top());
-        p->thisLine.pop();
+      }
+      ExpressionPtr a = std::move(p->thisLine.top());
+      p->thisLine.pop();
+      // Now generate a new AST from a token
+      Token t = p->requestToken();
+      if (std::holds_alternative<Newline>(t)) {
+        // Oh no, we can't find anything after this
+        p->errorLog.emplace_back(
+          LexErrorCode::noRightOperand,
+          p->positions.top());
+        p->positions.pop();
+        return false;
+      }
+      bool generatedExpression = p->acceptToken(std::move(t));
+      if (!generatedExpression) {
+        // Oh no, we can't find anything after this
+        p->errorLog.emplace_back(
+          LexErrorCode::noRightOperand,
+          p->positions.top());
+        p->positions.pop();
+        return false;
+      }
+      ExpressionPtr b = std::move(p->thisLine.top());
+      p->thisLine.pop();
+      p->positions.pop();
+      ExpressionPtr ex = (prec & 1) == 0 ?
+        a->imbue(std::move(a), op, prec >> 3, std::move(b)) :
+        b->imbue(std::move(b), op, prec >> 3, std::move(a));
+      p->thisLine.push(std::move(ex));
+      return true;
+    }
+    bool operator()(Operator&& op) {
+      size_t prec = precedences[(size_t) op];
+      if (prec == 1 || prec == 0 /* nyi */) {
+        p->errorLog.emplace_back(
+          LexErrorCode::invalidOpInExpr,
+          p->getLastLineInfo());
+        return false;
+      }
+      if ((prec & 2) == 0) { // This is a binary operator
+        parseBinaryOp(op, prec);
+      }
+      if ((prec & 2) != 0) { // This is a unary operator
         // Now generate a new AST from a token
         Token t = p->requestToken();
         if (std::holds_alternative<Newline>(t)) {
           // Oh no, we can't find anything after this
           p->errorLog.emplace_back(
             LexErrorCode::noRightOperand,
-            p->positions.top());
-          p->positions.pop();
+            p->getLastLineInfo());
           return false;
         }
         bool generatedExpression = p->acceptToken(std::move(t));
@@ -158,18 +272,13 @@ namespace x666 {
           // Oh no, we can't find anything after this
           p->errorLog.emplace_back(
             LexErrorCode::noRightOperand,
-            p->positions.top());
-          p->positions.pop();
+            p->getLastLineInfo());
           return false;
         }
-        ExpressionPtr b = std::move(p->thisLine.top());
+        ExpressionPtr a = std::move(p->thisLine.top());
         p->thisLine.pop();
-        p->positions.pop();
-        ExpressionPtr ex = (prec & 1) == 0 ?
-          a->imbue(std::move(a), op, prec, std::move(b)) :
-          b->imbue(std::move(b), op, prec, std::move(a));
+        ExpressionPtr ex = a->imbue(std::move(a), op, prec >> 3);
         p->thisLine.push(std::move(ex));
-        return true;
       }
     }
   private:
@@ -189,9 +298,12 @@ namespace x666 {
   void Parser::parse() {
     while (true) {
       Token t = requestToken();
-      if (std::holds_alternative<EndOfFile>(t)) break;
       acceptToken(std::move(t));
+      if (std::holds_alternative<EndOfFile>(t)) break;
       assert(thisLine.size() == positions.size());
     }
+  }
+  const LineInfo& Parser::getLastLineInfo() const {
+    return !positions.empty() ? positions.top() : li;
   }
 }

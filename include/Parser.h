@@ -15,9 +15,11 @@ namespace x666 {
     Expression() {}
     virtual size_t id() const = 0;
     /**
-     * Imbue a binary operator and its other operand onto an expression.
+     * Imbue a binary operator and its other operand into an expression.
      * a is the recipient, and it should also be the invoker.
      * b is the RHS for la operators and the LHS for ra operators.
+     * prec should receive the entry in the precedence table,
+     * right-shifted by 3.
      * 
      * Ex (give std::unique_ptr<Expression> a, b;):
      * std::unique_ptr<Expression> ex = a->imbue(a, op, prec, b);
@@ -27,6 +29,15 @@ namespace x666 {
       std::unique_ptr<Expression> a,
       Operator o, size_t precedence,
       std::unique_ptr<Expression> b);
+    /**
+     * Imbue a unary operator into an expression.
+     * a is the recipient, and it should also be the invoker.
+     * prec should receive the entry in the precedence table,
+     * right-shifted by 3.
+     */
+    virtual std::unique_ptr<Expression> imbue(
+      std::unique_ptr<Expression> a,
+      Operator o, size_t precedence);
     /**
      * Prints a representation of the expression to stdout.
      * BTW, did you know that `hack` means trace in Arka?
@@ -55,6 +66,24 @@ namespace x666 {
       ExpressionPtr ax,
       Operator o, size_t precedence,
       ExpressionPtr b) override;
+    ExpressionPtr imbue(
+      ExpressionPtr ax,
+      Operator o, size_t precedence) override;
+    void trace() const override;
+  };
+  class UnaryOp : public Expression {
+  public:
+    UnaryOp(ExpressionPtr a, Operator o) :
+      a(std::move(a)), o(o) {}
+    // Note: a is LHS for left-associative operators
+    // but RHS for right-associative operators
+    ExpressionPtr a;
+    Operator o;
+    size_t id() const override { return 3; }
+    ExpressionPtr imbue(
+      ExpressionPtr ax,
+      Operator o, size_t precedence,
+      ExpressionPtr b) override;
     void trace() const override;
   };
   /**
@@ -74,6 +103,7 @@ namespace x666 {
     bool acceptToken(Token&& t);
     Token requestToken();
     ExpressionPtr parseExpression();
+    const LineInfo& getLastLineInfo() const;
     std::vector<ExpressionPtr> expressions;
     std::stack<ExpressionPtr> thisLine;
     std::stack<LineInfo> positions;
