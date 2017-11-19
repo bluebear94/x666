@@ -68,6 +68,7 @@ int main(int argc, char** argv) {
     std::cout << "Compilation succeeded\n";
     for (const x666::ExpressionPtr& ex : p.expressions) {
       ex->trace();
+      std::cout << "\n";
     }
   } else {
     std::cout << "Parsing failed:\n";

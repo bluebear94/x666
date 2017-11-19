@@ -155,7 +155,9 @@ namespace x666 {
         }
         ExpressionPtr b = std::move(p->thisLine.top());
         p->thisLine.pop();
-        ExpressionPtr ex = a->imbue(std::move(a), op, prec, std::move(b));
+        ExpressionPtr ex = (prec & 1) == 0 ?
+          a->imbue(std::move(a), op, prec, std::move(b)) :
+          b->imbue(std::move(b), op, prec, std::move(a));
         p->thisLine.push(std::move(ex));
         return true;
       }
