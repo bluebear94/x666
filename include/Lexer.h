@@ -17,6 +17,7 @@ namespace x666 {
     std::string name;
   };
   struct StringLiteral {
+    StringLiteral(std::string&& s) : str(s) {}
     std::string str;
   };
   struct IntLiteral {
@@ -34,6 +35,24 @@ namespace x666 {
     divide,
     concat,
     assign,
+    equal,
+    less,
+    greater,
+    notEqual,
+    lessEqual,
+    greaterEqual,
+    ifStmt,
+    ifThenStmt,
+    elseStmt,
+    endStmt,
+    questionMark,
+    colon,
+    whileStmt,
+    repeatStmt,
+    forStmt,
+    notStmt,
+    andStmt,
+    orStmt,
   };
   struct Newline {};
   struct EndOfFile {};

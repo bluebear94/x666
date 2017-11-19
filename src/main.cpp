@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
         break;
       }
       case 4: {
-        std::cout << "Newline ";
+        std::cout << "Newline";
         break;
       }
       case 5: {
@@ -48,8 +48,9 @@ int main(int argc, char** argv) {
         size_t off = fh.tellg();
         fh.seekg(byte);
         const x666::LexError& le = std::get<6>(t);
-        char* s = new char[le.end - le.start];
+        char* s = new char[le.end - le.start + 1];
         fh.read(s, le.end - le.start);
+        s[fh.gcount()] = '\0';
         std::cout << " (" << s << ")\n";
         delete[] s;
         fh.seekg(off);
@@ -63,6 +64,7 @@ int main(int argc, char** argv) {
       fh.seekg(byte);
       char* s = new char[li.byte - byte];
       fh.read(s, li.byte - byte);
+      s[fh.gcount()] = '\0';
       std::cout << " (" << s << ")\n";
       delete[] s;
       fh.seekg(off);

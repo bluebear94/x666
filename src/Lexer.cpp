@@ -44,11 +44,43 @@ namespace x666 {
     return false;
 #endif
   }
+  std::string parseStringLiteral(std::istream& fh, LineInfo& li) {
+    std::string s;
+    while (true) {
+      int c = getChar(fh, li);
+      if (c == '\n' ||c == std::char_traits<char>::eof() || c == '\x22') {
+        break;
+      } else if (c == '\\') {
+        // Escape sequence
+        c = getChar(fh, li);
+        switch (c) {
+          case 'n': s += '\n'; break;
+          case '\\': s += '\\'; break;
+          case '\x22': s += '\x22'; break;
+          default: s += c;
+        }
+      } else {
+        s += (char) c;
+      }
+    }
+    return s;
+  }
   Token getNextToken(std::istream& fh, LineInfo& li, size_t& sot) {
     int c;
     do {
       c = getChar(fh, li);
-      if (c == '\n') return Newline();
+      if (c == '\n' || c == ';') return Newline();
+      if (c == '#') {
+        if (fh.peek() == '#') {
+          // Comment syntax (tentative)
+          fh.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+          li.col = 0;
+          ++li.line;
+          li.byte = fh.tellg();
+          sot = li.byte;
+          return Newline();
+        }
+      }
     } while (iswspace(c));
     if (fh.fail()) return EndOfFile();
     sot = li.byte - 1;
@@ -110,6 +142,84 @@ namespace x666 {
         getChar(fh, li);
       }
       return id;
+    } else {
+      switch (c) {
+        case '+': return Operator::plus;
+        case '*': return Operator::times;
+        case '~': return Operator::concat;
+        case '(': return Operator::leftBracket;
+        case ')': return Operator::rightBracket;
+        case '[': return Operator::leftSBracket;
+        case ']': return Operator::rightSBracket;
+        case '=': return Operator::equal;
+        case ':': return Operator::colon;
+        case '|': return Operator::orStmt;
+        case '/': {
+          if (fh.peek() == '=') {
+            getChar(fh, li);
+            return Operator::notEqual;
+          }
+          return Operator::divide;
+        }
+        case '<': {
+          int c = fh.peek();
+          if (c == '=') {
+            getChar(fh, li);
+            return Operator::lessEqual;
+          } else if (c == '-') {
+            getChar(fh, li);
+            return Operator::assign;
+          }
+          return Operator::less;
+        }
+        case '>': {
+          int c = fh.peek();
+          if (c == '=') {
+            getChar(fh, li);
+            return Operator::greaterEqual;
+          }
+          return Operator::greater;
+        }
+        case '?': {
+          int c = fh.peek();
+          if (c == '?') {
+            getChar(fh, li);
+            return Operator::ifStmt;
+          } else if (c == '&') {
+            getChar(fh, li);
+            return Operator::ifThenStmt;
+          }
+          return Operator::questionMark;
+        }
+        case '@': {
+          int c = fh.peek();
+          if (c == '#') {
+            getChar(fh, li);
+            return Operator::forStmt;
+          } else if (c == '@') {
+            getChar(fh, li);
+            return Operator::repeatStmt;
+          }
+          return Operator::whileStmt;
+        }
+        case '&': {
+          int c = fh.peek();
+          if (c == '>') {
+            getChar(fh, li);
+            return Operator::endStmt;
+          }
+          return Operator::andStmt;
+        }
+        case '!': {
+          int c = fh.peek();
+          if (c == '!') {
+            getChar(fh, li);
+            return Operator::elseStmt;
+          }
+          return Operator::notStmt;
+        }
+        case '\x22': return StringLiteral(parseStringLiteral(fh, li));
+      }
     }
     return LexError(LexErrorCode::unknownOperator, sot, li.byte + 1);
   }
