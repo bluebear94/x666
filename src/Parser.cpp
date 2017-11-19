@@ -34,10 +34,44 @@ namespace x666 {
       ExpressionPtr b) {
     return std::make_unique<BinaryOp>(std::move(a), std::move(b), o);
   }
+  ExpressionPtr Expression::imbueLeft(
+      ExpressionPtr b,
+      Operator o, size_t /*precedence*/,
+      ExpressionPtr a) {
+    return std::make_unique<BinaryOp>(std::move(a), std::move(b), o);
+  }
   ExpressionPtr Expression::imbue(
       ExpressionPtr a,
       Operator o, size_t /*precedence*/) {
     return std::make_unique<UnaryOp>(std::move(a), o);
+  }
+  ExpressionPtr Expression::juxtapose(
+      ExpressionPtr b,
+      ExpressionPtr a) {
+    Expression* ar = a.get();
+    return ar->imbue(
+      std::move(a),
+      Operator::times,
+      precedences[(size_t) Operator::times] >> 3,
+      std::move(b));
+  }
+  ExpressionPtr Literal::juxtapose(
+      ExpressionPtr bx,
+      ExpressionPtr a) {
+    assert(bx->id() == 1);
+    Literal* b = dynamic_cast<Literal*>(bx.get());
+    if (std::holds_alternative<IntLiteral>(b->val)) {
+      int64_t ival = std::get<IntLiteral>(b->val).n;
+      if (ival < 0) {
+        Expression* ar = a.get();
+        return ar->imbue(
+          std::move(a),
+          Operator::minus,
+          precedences[(size_t) Operator::minus] >> 3,
+          std::make_unique<Literal>(IntLiteral(-ival)));
+      }
+    }
+    return Expression::juxtapose(std::move(bx), std::move(a));
   }
   ExpressionPtr BinaryOp::imbue(
       ExpressionPtr ax,
@@ -71,6 +105,25 @@ namespace x666 {
       */
       a->b = a->b->imbue(std::move(a->b), o, prec, std::move(b));
       return ax;
+    }
+  }
+  ExpressionPtr BinaryOp::imbueLeft(
+      ExpressionPtr bx,
+      Operator o, size_t prec,
+      ExpressionPtr a) {
+    /*
+        o->        b->o
+       /          /    \
+      a          b->a   b->b
+    */
+    assert(bx->id() == 2);
+    BinaryOp* b = dynamic_cast<BinaryOp*>(bx.get());
+    size_t bprec = precedences[(size_t) b->o] >> 3;
+    if (bprec >= prec) {
+      return std::make_unique<BinaryOp>(std::move(a), std::move(bx), o);
+    } else { // bprec < prec
+      b->a = b->a->imbueLeft(std::move(b->a), o, prec, std::move(a));
+      return bx;
     }
   }
   ExpressionPtr BinaryOp::imbue(
@@ -140,6 +193,35 @@ namespace x666 {
       return ax;
     }
   }
+  ExpressionPtr UnaryOp::imbueLeft(
+      ExpressionPtr bx,
+      Operator o, size_t prec,
+      ExpressionPtr a) {
+    assert(bx->id() == 3);
+    UnaryOp* b = dynamic_cast<UnaryOp*>(bx.get());
+    size_t bprec = precedences[(size_t) b->o] >> 3;
+    if (bprec >= prec) {
+      /*
+            o--
+           /   \
+          a->o  b
+         /
+        a->a
+      */
+      return std::make_unique<BinaryOp>(std::move(a), std::move(bx), o);
+    } else { // bprec < prec
+      /*
+            a->o
+           /
+          o--
+         /   \
+        a->a  b
+        (this case showing the trivial imbuement into a->a)
+      */
+      b->a = b->a->imbueLeft(std::move(b->a), o, prec, std::move(a));
+      return bx;
+    }
+  }
   void Literal::trace() const {
     switch (val.index()) {
       case 0: std::cout << std::get<0>(val).name; break;
@@ -150,9 +232,11 @@ namespace x666 {
   }
   void BinaryOp::trace() const {
     size_t prec = precedences[(size_t) o];
+    std::cout << "(";
     ((prec & 1) == 0 ? a : b)->trace();
     std::cout << " " << opsAsStrings[(size_t) o] << " ";
     ((prec & 1) == 0 ? b : a)->trace();
+    std::cout << ")";
   }
   void UnaryOp::trace() const {
     std::cout << opsAsStrings[(size_t) o];
@@ -162,6 +246,12 @@ namespace x666 {
     std::cout << "(";
     ex->trace();
     std::cout << ")";
+  }
+  void Indexing::trace() const {
+    a->trace();
+    std::cout << "[";
+    b->trace();
+    std::cout << "]";
   }
   void Statement::trace() const {
     if (statementOp != Operator::plus) {
@@ -278,7 +368,8 @@ namespace x666 {
           LexErrorCode::multipleExpressions,
           p->getLastLineInfo());
         return false;
-      } else if (k == 1) {
+      }
+      if (k > 0) {
         ExpressionPtr ex = std::move(p->thisLine.top());
         p->thisLine.pop();
         p->thisLine.push(
@@ -345,11 +436,32 @@ namespace x666 {
       errorLog.push_back(std::get<LexError>(t));
     return t;
   }
+  void Parser::foldStack() {
+    size_t limit = brackets.empty() ? 0 : brackets.top().thisLineSize;
+    size_t count = (thisLine.size() < limit) ? 0 : thisLine.size() - limit;
+    if (count <= 1) return;
+    std::stack<ExpressionPtr> e;
+    for (size_t i = 0; i < count - 1; ++i) {
+      e.push(std::move(thisLine.top()));
+      thisLine.pop();
+      positions.pop();
+    }
+    ExpressionPtr r = std::move(thisLine.top());
+    thisLine.pop();
+    while (!e.empty()) {
+      ExpressionPtr s = std::move(e.top());
+      e.pop();
+      Expression* sr = s.get();
+      r = sr->juxtapose(std::move(s), std::move(r));
+    }
+    thisLine.push(std::move(r));
+  }
   bool Parser::acceptToken(Token&& t) {
     bool isNewline = std::holds_alternative<Newline>(t);
     bool res = std::visit(ParserVisitor(this, li), std::move(t));
     if (!isNewline && currentStatement == Operator::plus)
       currentStatement = Operator::minus;
+    foldStack();
     return res;
   }
   size_t Parser::pushExpression() {

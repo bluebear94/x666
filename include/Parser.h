@@ -29,6 +29,10 @@ namespace x666 {
       std::unique_ptr<Expression> a,
       Operator o, size_t precedence,
       std::unique_ptr<Expression> b);
+    virtual std::unique_ptr<Expression> imbueLeft(
+      std::unique_ptr<Expression> b,
+      Operator o, size_t precedence,
+      std::unique_ptr<Expression> a);
     /**
      * Imbue a unary operator into an expression.
      * a is the recipient, and it should also be the invoker.
@@ -38,6 +42,12 @@ namespace x666 {
     virtual std::unique_ptr<Expression> imbue(
       std::unique_ptr<Expression> a,
       Operator o, size_t precedence);
+    /**
+     * Returns the semantic result of juxtaposing a and b.
+     */
+    virtual std::unique_ptr<Expression> juxtapose(
+      std::unique_ptr<Expression> b,
+      std::unique_ptr<Expression> a);
     /**
      * Prints a representation of the expression to stdout.
      * BTW, did you know that `hack` means trace in Arka?
@@ -52,6 +62,9 @@ namespace x666 {
     LiteralValue val;
     size_t id() const override { return 1; }
     void trace() const override;
+    std::unique_ptr<Expression> juxtapose(
+      std::unique_ptr<Expression> b,
+      std::unique_ptr<Expression> a) override;
   };
   class BinaryOp : public Expression {
   public:
@@ -66,6 +79,10 @@ namespace x666 {
       ExpressionPtr ax,
       Operator o, size_t precedence,
       ExpressionPtr b) override;
+    ExpressionPtr imbueLeft(
+      ExpressionPtr bx,
+      Operator o, size_t precedence,
+      ExpressionPtr a) override;
     ExpressionPtr imbue(
       ExpressionPtr ax,
       Operator o, size_t precedence) override;
@@ -84,6 +101,10 @@ namespace x666 {
       ExpressionPtr ax,
       Operator o, size_t precedence,
       ExpressionPtr b) override;
+    ExpressionPtr imbueLeft(
+      ExpressionPtr bx,
+      Operator o, size_t precedence,
+      ExpressionPtr a) override;
     void trace() const override;
   };
   class Bracket : public Expression {
@@ -93,6 +114,16 @@ namespace x666 {
     ExpressionPtr ex;
     Operator bracket;
     size_t id() const override { return 4; }
+    void trace() const override;
+  };
+  class Indexing : public Expression {
+  public:
+    Indexing(ExpressionPtr a, ExpressionPtr b) :
+      a(std::move(a)), b(std::move(b)) {}
+    // Note: a is LHS for left-associative operators
+    // but RHS for right-associative operators
+    ExpressionPtr a, b;
+    size_t id() const override { return 5; }
     void trace() const override;
   };
   struct Statement {
@@ -128,6 +159,7 @@ namespace x666 {
     Token requestToken();
     ExpressionPtr parseExpression();
     const LineInfo& getLastLineInfo() const;
+    void foldStack();
     std::vector<Statement> statements;
     std::stack<ExpressionPtr> thisLine;
     std::stack<LineInfo> positions;
