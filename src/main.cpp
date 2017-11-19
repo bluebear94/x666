@@ -16,8 +16,8 @@ int main(int argc, char** argv) {
   p.parse();
   if (p.errorLog.empty()) {
     std::cout << "Compilation succeeded\n";
-    for (const x666::ExpressionPtr& ex : p.expressions) {
-      ex->trace();
+    for (const x666::Statement& st : p.statements) {
+      st.trace();
       std::cout << "\n";
     }
   } else {

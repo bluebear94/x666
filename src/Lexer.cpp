@@ -22,6 +22,7 @@ namespace x666 {
     "/=", "<=", ">=", "??", "?&",
     "!!", "&>", "?", ":", "@", "@@",
     "@#", "!", "&", "|", "|*", "#", ",",
+    "#>"
   };
   static int getChar(std::istream& fh, LineInfo& li) {
     int c = fh.get();
@@ -178,7 +179,14 @@ namespace x666 {
         case '=': return Operator::equal;
         case ':': return Operator::colon;
         case ',': return Operator::comma;
-        case '#': return Operator::length;
+        case '#': {
+          int c = fh.peek();
+          if (c == '>') {
+            getChar(fh, li);
+            return Operator::print;
+          }
+          return Operator::length;
+        }
         case '/': {
           if (fh.peek() == '=') {
             getChar(fh, li);

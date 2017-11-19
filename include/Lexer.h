@@ -65,6 +65,7 @@ namespace x666 {
     xorStmt,
     length,
     comma,
+    print,
   };
   /** Token to denote a newline. */
   struct Newline {};

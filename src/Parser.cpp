@@ -24,7 +24,7 @@ namespace x666 {
     0x381, 0x381, // ? :
     1, 1, 1, // @ @@ @#
     0x582, 0x280, 0x280, 0x280, // ! & | |*
-    0x582, 0x180, // # ,
+    0x582, 0x180, 1, // # , #>
   };
   // Methods specific to Expression-trees
   Expression::~Expression() {}
@@ -163,6 +163,12 @@ namespace x666 {
     ex->trace();
     std::cout << ")";
   }
+  void Statement::trace() const {
+    if (statementOp != Operator::plus) {
+      std::cout << opsAsStrings[(size_t) statementOp] << ' ';
+    }
+    ex->trace();
+  }
   // ParserVisitor used in parseAST::parse()
   class ParserVisitor {
   public:
@@ -188,7 +194,11 @@ namespace x666 {
       ExpressionPtr ex = std::move(p->thisLine.top());
       p->thisLine.pop();
       p->positions.pop();
-      p->expressions.push_back(std::move(ex));
+      Operator stmt = (p->currentStatement != Operator::minus) ?
+        p->currentStatement :
+        Operator::plus;
+      p->statements.push_back({std::move(ex), stmt});
+      p->currentStatement = Operator::plus;
       if (!p->thisLine.empty()) {
         p->errorLog.emplace_back(
           LexErrorCode::multipleExpressions,
@@ -292,11 +302,16 @@ namespace x666 {
       } else if (prec == 3) {
         // Closing bracket.
         return parseClosingBracket(op);
-      } else if (prec < 64) {
-        p->errorLog.emplace_back(
-          LexErrorCode::invalidOpInExpr,
-          p->getLastLineInfo());
-        return false;
+      } else if (prec == 1) {
+        if (p->currentStatement == Operator::plus) {
+          p->currentStatement = op;
+          return false;
+        } else {
+          p->errorLog.emplace_back(
+            LexErrorCode::invalidOpInExpr,
+            p->getLastLineInfo());
+          return false;
+        }
       }
       if ((prec & 2) == 0) { // This is a binary operator
         parseBinaryOp(op, prec);
@@ -322,7 +337,8 @@ namespace x666 {
     Parser* p;
     LineInfo li;
   };
-  Parser::Parser(std::istream* fh) : fh(fh) {}
+  Parser::Parser(std::istream* fh) :
+    fh(fh), currentStatement(Operator::plus) {}
   Token Parser::requestToken() {
     Token t = getNextToken(*fh, li);
     if (std::holds_alternative<LexError>(t))
@@ -330,7 +346,11 @@ namespace x666 {
     return t;
   }
   bool Parser::acceptToken(Token&& t) {
-    return std::visit(ParserVisitor(this, li), std::move(t));
+    bool isNewline = std::holds_alternative<Newline>(t);
+    bool res = std::visit(ParserVisitor(this, li), std::move(t));
+    if (!isNewline && currentStatement == Operator::plus)
+      currentStatement = Operator::minus;
+    return res;
   }
   size_t Parser::pushExpression() {
     size_t oldBracketsHeight = brackets.size();

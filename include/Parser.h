@@ -95,6 +95,11 @@ namespace x666 {
     size_t id() const override { return 4; }
     void trace() const override;
   };
+  struct Statement {
+    ExpressionPtr ex;
+    Operator statementOp;
+    void trace() const;
+  };
   /**
    * A parser object.
    */
@@ -123,13 +128,16 @@ namespace x666 {
     Token requestToken();
     ExpressionPtr parseExpression();
     const LineInfo& getLastLineInfo() const;
-    std::vector<ExpressionPtr> expressions;
+    std::vector<Statement> statements;
     std::stack<ExpressionPtr> thisLine;
     std::stack<LineInfo> positions;
     std::stack<BracketEntry> brackets;
     std::vector<LexError> errorLog;
     std::istream* fh;
     LineInfo li;
+    // plus => no explicit statement
+    // minus => already taken in a token
+    Operator currentStatement;
     friend class ParserVisitor;
   };
 }
