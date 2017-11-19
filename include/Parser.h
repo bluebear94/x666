@@ -76,6 +76,7 @@ namespace x666 {
     ExpressionPtr parseExpression();
     std::vector<ExpressionPtr> expressions;
     std::stack<ExpressionPtr> thisLine;
+    std::stack<LineInfo> positions;
     std::vector<LexError> errorLog;
     std::istream* fh;
     LineInfo li;

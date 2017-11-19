@@ -11,9 +11,9 @@ namespace x666 {
    * Information about the current line and column.
    */
   struct LineInfo {
-    LineInfo() : line(0), col(0), byte(0) {}
+    LineInfo() : line(0), col(0), byte(0), sot(0) {}
     size_t line, col;
-    size_t byte;
+    size_t byte, sot;
   };
   /** An identifier token. */
   struct Identifier {
@@ -25,6 +25,7 @@ namespace x666 {
     StringLiteral(std::string&& s) : str(s) {}
     std::string str;
   };
+  std::string unescape(const std::string& s);
   /** An integer literal (64-bit). */
   struct IntLiteral {
     IntLiteral(int64_t n) : n(n) {}
@@ -75,18 +76,17 @@ namespace x666 {
     unknownOperator,
     invalidOpInExpr,
     multipleExpressions,
-    noLeftOperator,
-    noRightOperator,
+    noLeftOperand,
+    noRightOperand,
   };
   /** The array of lex error messages. */
   extern const char* lexErrorMessages[];
   extern const char* opsAsStrings[];
   /** A token to denote that a lexing error has occurred. */
   struct LexError {
-    LexError(LexErrorCode c, size_t start, const LineInfo& li) :
-      c(c), start(start), li(li) {}
+    LexError(LexErrorCode c, const LineInfo& li) :
+      c(c), li(li) {}
     LexErrorCode c;
-    size_t start;
     LineInfo li;
     void print(std::istream& fh) const;
   };
@@ -103,5 +103,5 @@ namespace x666 {
    * sot is a reference that will store the beginning of the
    * token read after this function returns.
    */
-  Token getNextToken(std::istream& fh, LineInfo& li, size_t& sot);
+  Token getNextToken(std::istream& fh, LineInfo& li);
 }

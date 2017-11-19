@@ -68,7 +68,8 @@ namespace x666 {
     switch (val.index()) {
       case 0: std::cout << std::get<0>(val).name; break;
       case 1: std::cout << std::get<1>(val).n; break;
-      case 2: std::cout << std::get<2>(val).str; break;
+      case 2: std::cout << "\"" << unescape(std::get<2>(val).str) << "\"";
+      break;
     }
   }
   void BinaryOp::trace() const {
@@ -80,17 +81,20 @@ namespace x666 {
   // ParserVisitor used in parseAST::parse()
   class ParserVisitor {
   public:
-    ParserVisitor(Parser* p) : p(p) {}
+    ParserVisitor(Parser* p, const LineInfo& li) : p(p), li(li) {}
     bool operator()(Identifier&& i) {
       p->thisLine.push(std::make_unique<Literal>(std::move(i)));
+      p->positions.push(li);
       return true;
     }
     bool operator()(StringLiteral&& i) {
       p->thisLine.push(std::make_unique<Literal>(std::move(i)));
+      p->positions.push(li);
       return true;
     }
     bool operator()(IntLiteral&& i) {
       p->thisLine.push(std::make_unique<Literal>(std::move(i)));
+      p->positions.push(li);
       return true;
     }
     void commitLine() {
@@ -98,11 +102,14 @@ namespace x666 {
       if (p->thisLine.empty()) return;
       ExpressionPtr ex = std::move(p->thisLine.top());
       p->thisLine.pop();
+      p->positions.pop();
       p->expressions.push_back(std::move(ex));
       if (!p->thisLine.empty()) {
         p->errorLog.emplace_back(
           LexErrorCode::multipleExpressions,
-          p->sot, p->li);
+          p->positions.top());
+        while (!p->thisLine.empty()) p->thisLine.pop();
+        while (!p->positions.empty()) p->positions.pop();
       }
       return;
     }
@@ -123,15 +130,15 @@ namespace x666 {
       if (prec == 1 || prec == 0 /* nyi */) {
         p->errorLog.emplace_back(
           LexErrorCode::invalidOpInExpr,
-          p->sot, p->li);
+          p->positions.empty() ? li : p->positions.top());
         return false;
       } else if ((prec & 2) == 0) {
         // Get the top AST
         if (p->thisLine.empty()) {
           // Oh no, we can't find anything after this
           p->errorLog.emplace_back(
-            LexErrorCode::noLeftOperator,
-            p->sot, p->li);
+            LexErrorCode::noLeftOperand,
+            p->li);
           return false;
         }
         ExpressionPtr a = std::move(p->thisLine.top());
@@ -141,20 +148,23 @@ namespace x666 {
         if (std::holds_alternative<Newline>(t)) {
           // Oh no, we can't find anything after this
           p->errorLog.emplace_back(
-            LexErrorCode::noRightOperator,
-            p->sot, p->li);
+            LexErrorCode::noRightOperand,
+            p->positions.top());
+          p->positions.pop();
           return false;
         }
         bool generatedExpression = p->acceptToken(std::move(t));
         if (!generatedExpression) {
           // Oh no, we can't find anything after this
           p->errorLog.emplace_back(
-            LexErrorCode::noRightOperator,
-            p->sot, p->li);
+            LexErrorCode::noRightOperand,
+            p->positions.top());
+          p->positions.pop();
           return false;
         }
         ExpressionPtr b = std::move(p->thisLine.top());
         p->thisLine.pop();
+        p->positions.pop();
         ExpressionPtr ex = (prec & 1) == 0 ?
           a->imbue(std::move(a), op, prec, std::move(b)) :
           b->imbue(std::move(b), op, prec, std::move(a));
@@ -164,19 +174,24 @@ namespace x666 {
     }
   private:
     Parser* p;
+    LineInfo li;
   };
   Parser::Parser(std::istream* fh) : fh(fh) {}
   Token Parser::requestToken() {
-    return getNextToken(*fh, li, sot);
+    Token t = getNextToken(*fh, li);
+    if (std::holds_alternative<LexError>(t))
+      errorLog.push_back(std::get<LexError>(t));
+    return t;
   }
   bool Parser::acceptToken(Token&& t) {
-    return std::visit(ParserVisitor(this), std::move(t));
+    return std::visit(ParserVisitor(this, li), std::move(t));
   }
   void Parser::parse() {
     while (true) {
       Token t = requestToken();
       if (std::holds_alternative<EndOfFile>(t)) break;
       acceptToken(std::move(t));
+      assert(thisLine.size() == positions.size());
     }
   }
 }

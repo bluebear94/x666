@@ -11,8 +11,8 @@ namespace x666 {
     "Unknown operator",
     "Operator doesn't belong in an expression",
     "Multiple expressions on a line",
-    "Left operator missing",
-    "Right operator missing",
+    "Left operand missing",
+    "Right operand missing",
   };
   const char* opsAsStrings[] = {
     "(", ")", "[", "]",
@@ -77,7 +77,17 @@ namespace x666 {
     }
     return s;
   }
-  Token getNextToken(std::istream& fh, LineInfo& li, size_t& sot) {
+  std::string unescape(const std::string& s) {
+    std::string res;
+    for (char c : s) {
+      if (c == '\n') res += "\\n";
+      else if (c == '\\') res += "\\\\";
+      else if (c == '\x22') res += "\\\"";
+      else res += c;
+    }
+    return res;
+  }
+  Token getNextToken(std::istream& fh, LineInfo& li) {
     int c;
     do {
       c = getChar(fh, li);
@@ -89,13 +99,13 @@ namespace x666 {
           li.col = 0;
           ++li.line;
           li.byte = fh.tellg();
-          sot = li.byte;
+          li.sot = li.byte;
           return Newline();
         }
       }
     } while (iswspace(c));
     if (fh.fail()) return EndOfFile();
-    sot = li.byte - 1;
+    li.sot = li.byte - 1;
     bool negative = false;
     if (c == '-') { // Negative integers are handled specially
       c = fh.peek();
@@ -137,7 +147,7 @@ namespace x666 {
         }
         if (negative) digit = -digit;
         if (wouldMAddOverflow(base, n, digit)) {
-          return LexError(LexErrorCode::integerOverflow, sot, li);
+          return LexError(LexErrorCode::integerOverflow, li);
         }
         n = base * n + digit;
         getChar(fh, li);
@@ -243,19 +253,57 @@ namespace x666 {
         case '\x22': return StringLiteral(parseStringLiteral(fh, li));
       }
     }
-    return LexError(LexErrorCode::unknownOperator, sot, li);
+    return LexError(LexErrorCode::unknownOperator, li);
   }
   void LexError::print(std::istream& fh) const {
     std::cout << "Error at line " << (li.line + 1);
-    std::cout << " column " << (li.col + 1);
+    std::cout << " column " << (li.col + 1) << ": ";
+    std::cout << lexErrorMessages[(int) c] << "\n";
+    fh.clear();
     size_t off = fh.tellg();
-    fh.seekg(start);
-    char* s = new char[li.byte - start + 1];
-    fh.read(s, li.byte - start);
-    s[fh.gcount()] = '\0';
-    std::cout << " (" << s << ")\n";
-    delete[] s;
+    size_t lineend = li.byte;
+    fh.seekg(lineend);
+    while (true) {
+      int c = fh.get();
+      ++lineend;
+      if (c == std::char_traits<char>::eof() || c == '\n')
+        break;
+    }
+    fh.clear();
+    size_t linestart = li.sot;
+    fh.seekg(linestart);
+    while (linestart > 0) {
+      --linestart;
+      fh.seekg(linestart);
+      if (fh.peek() == '\n') {
+        ++linestart;
+        fh.get();
+        break;
+      }
+    }
+    // We should now be at the start of the first line.
+    ssize_t lengthOfSnakeSigned = li.byte - li.sot + 1;
+    fh.seekg(linestart);
+    while (true) {
+      std::string s;
+      std::getline(fh, s);
+      std::cout << s << "\n";
+      if ((size_t) fh.tellg() >= lineend) break;
+    }
+    size_t lengthOfSnake = abs(lengthOfSnakeSigned);
+    if (lengthOfSnakeSigned <= 0) {
+      if (lengthOfSnake > li.col) lengthOfSnake = li.col;
+      std::cout << std::string(li.col - lengthOfSnake, ' ');
+      std::cout << std::string(lengthOfSnake, '~');
+      std::cout << "^\n";
+    } else {
+      if (lengthOfSnake > li.col) lengthOfSnake = li.col;
+      std::cout << std::string(li.col - lengthOfSnake, ' ');
+      std::cout << "^";
+      if (lengthOfSnake > 0)
+        std::cout << std::string(lengthOfSnake - 1, '~');
+      std::cout << "\n";
+    }
     fh.seekg(off);
-    std::cout << x666::lexErrorMessages[(int) c] << "\n";
   }
 }
