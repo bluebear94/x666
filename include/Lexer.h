@@ -80,6 +80,8 @@ namespace x666 {
     noLeftOperand,
     noRightOperand,
     mismatchedBrackets,
+    statementNeedsExpression,
+    statementHasExpression,
   };
   /** The array of lex error messages. */
   extern const char* lexErrorMessages[];

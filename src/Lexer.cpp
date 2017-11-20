@@ -14,6 +14,8 @@ namespace x666 {
     "Left operand missing",
     "Right operand missing",
     "Mismatched brackets",
+    "This statement needs an expression after it",
+    "This statement doesn't take an expression but got one",
   };
   const char* opsAsStrings[] = {
     "(", ")", "[", "]",

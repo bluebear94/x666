@@ -255,9 +255,12 @@ namespace x666 {
   }
   void Statement::trace() const {
     if (statementOp != Operator::plus) {
-      std::cout << opsAsStrings[(size_t) statementOp] << ' ';
+      std::cout << opsAsStrings[(size_t) statementOp];
     }
-    ex->trace();
+    if (ex != nullptr) {
+      if (statementOp != Operator::plus) std::cout << ' ';
+      ex->trace();
+    }
   }
   // ParserVisitor used in parseAST::parse()
   class ParserVisitor {
@@ -280,22 +283,40 @@ namespace x666 {
     }
     void commitLine() {
       // Commit the current line
-      if (p->thisLine.empty()) return;
-      ExpressionPtr ex = std::move(p->thisLine.top());
-      p->thisLine.pop();
-      p->positions.pop();
-      Operator stmt = (p->currentStatement != Operator::minus) ?
-        p->currentStatement :
-        Operator::plus;
-      p->statements.push_back({std::move(ex), stmt});
-      p->currentStatement = Operator::plus;
-      if (!p->thisLine.empty()) {
-        p->errorLog.emplace_back(
-          LexErrorCode::multipleExpressions,
-          p->getLastLineInfo());
-        while (!p->thisLine.empty()) p->thisLine.pop();
-        while (!p->positions.empty()) p->positions.pop();
+      if (p->thisLine.empty()) {
+        Operator st = p->currentStatement;
+        if (st == Operator::plus || st == Operator::minus) {}
+        else if (st == Operator::elseStmt || st == Operator::endStmt) {
+          p->statements.push_back({nullptr, st});
+        } else {
+          p->errorLog.emplace_back(
+            LexErrorCode::statementNeedsExpression,
+            p->getLastLineInfo());
+        }
+      } else {
+        ExpressionPtr ex = std::move(p->thisLine.top());
+        p->thisLine.pop();
+        p->positions.pop();
+        Operator st = (p->currentStatement != Operator::minus) ?
+          p->currentStatement :
+          Operator::plus;
+        if (!p->thisLine.empty()) {
+          p->errorLog.emplace_back(
+            LexErrorCode::multipleExpressions,
+            p->getLastLineInfo());
+          while (!p->thisLine.empty()) p->thisLine.pop();
+          while (!p->positions.empty()) p->positions.pop();
+        } else if (st == Operator::elseStmt || st == Operator::endStmt) {
+          p->errorLog.emplace_back(
+            LexErrorCode::statementHasExpression,
+            p->getLastLineInfo());
+          while (!p->thisLine.empty()) p->thisLine.pop();
+          while (!p->positions.empty()) p->positions.pop();
+        } else {
+          p->statements.push_back({std::move(ex), st});
+        }
       }
+      p->currentStatement = Operator::plus;
       return;
     }
     bool operator()(Newline&&) {
