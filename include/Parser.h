@@ -115,6 +115,9 @@ namespace x666 {
     Operator bracket;
     size_t id() const override { return 4; }
     void trace() const override;
+    ExpressionPtr juxtapose(
+      ExpressionPtr b,
+      ExpressionPtr a) override;
   };
   class Indexing : public Expression {
   public:

@@ -73,6 +73,16 @@ namespace x666 {
     }
     return Expression::juxtapose(std::move(bx), std::move(a));
   }
+  ExpressionPtr Bracket::juxtapose(
+      ExpressionPtr bx,
+      ExpressionPtr a) {
+    if (bracket != Operator::leftSBracket) {
+      return Expression::juxtapose(std::move(bx), std::move(a));
+    }
+    assert(bx->id() == 4);
+    Bracket* b = dynamic_cast<Bracket*>(bx.get());
+    return std::make_unique<Indexing>(std::move(a), std::move(b->ex));
+  }
   ExpressionPtr BinaryOp::imbue(
       ExpressionPtr ax,
       Operator o, size_t prec,
